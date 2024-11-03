@@ -1,5 +1,5 @@
 %define name moar
-%define version 1.27.3
+%define version 1.28.1
 %define release 1%{?dist}
 
 Summary:  Moar is a pager. It's designed to just do the right thing without any configuration.
@@ -45,6 +45,7 @@ install -m 644 %{name}.1.gz %{buildroot}%{_mandir}/man1
 %{_mandir}/man1/%{name}.1.gz
 
 %changelog
+* Sun Nov 3 2024 - Danie de Jager 1.28.1-1
 * Thu Oct 31 2024 - Danie de Jager - 1.27.3-1
 - Prevent blank last column on Windows
 - Fish shell specific help text for setting moar as your pager

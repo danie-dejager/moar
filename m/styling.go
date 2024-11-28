@@ -15,7 +15,11 @@ import (
 var standoutStyle *twin.Style
 
 var lineNumbersStyle = twin.StyleDefault.WithAttr(twin.AttrDim)
+
+// Status bar and EOF marker style
 var statusbarStyle = twin.StyleDefault.WithAttr(twin.AttrReverse)
+
+var plainTextStyle = twin.StyleDefault
 
 func setStyle(updateMe *twin.Style, envVarName string, fallback *twin.Style) {
 	envValue := os.Getenv(envVarName)
@@ -53,7 +57,7 @@ func twinStyleFromChroma(chromaStyle *chroma.Style, chromaFormatter *chroma.Form
 	}
 
 	formatted := stringBuilder.String()
-	cells := textstyles.StyledRunesFromString("", formatted, nil).StyledRunes
+	cells := textstyles.StyledRunesFromString(twin.StyleDefault, formatted, nil).StyledRunes
 	if len(cells) != 1 {
 		log.Warnf("Chroma formatter didn't return exactly one cell: %#v", cells)
 		return nil
@@ -107,7 +111,7 @@ func consumeLessTermcapEnvs(chromaStyle *chroma.Style, chromaFormatter *chroma.F
 	}
 }
 
-func styleUI(chromaStyle *chroma.Style, chromaFormatter *chroma.Formatter, statusbarOption StatusBarOption) {
+func styleUI(chromaStyle *chroma.Style, chromaFormatter *chroma.Formatter, statusbarOption StatusBarOption, withTerminalFg bool) {
 	if chromaStyle == nil || chromaFormatter == nil {
 		return
 	}
@@ -125,11 +129,19 @@ func styleUI(chromaStyle *chroma.Style, chromaFormatter *chroma.Formatter, statu
 		lineNumbersStyle = *chromaLineNumbers
 	}
 
+	if withTerminalFg {
+		plainTextStyle = twin.StyleDefault
+	} else {
+		plainText := twinStyleFromChroma(chromaStyle, chromaFormatter, chroma.None, false)
+		if plainText != nil {
+			plainTextStyle = *plainText
+		}
+	}
+
 	if standoutStyle != nil {
 		statusbarStyle = *standoutStyle
 	} else if statusbarOption == STATUSBAR_STYLE_INVERSE {
-		// FIXME: Get this from the Chroma style
-		statusbarStyle = twin.StyleDefault.WithAttr(twin.AttrReverse)
+		statusbarStyle = plainTextStyle.WithAttr(twin.AttrReverse)
 	} else if statusbarOption == STATUSBAR_STYLE_PLAIN {
 		plain := twinStyleFromChroma(chromaStyle, chromaFormatter, chroma.None, false)
 		if plain != nil {
@@ -151,7 +163,7 @@ func styleUI(chromaStyle *chroma.Style, chromaFormatter *chroma.Formatter, statu
 
 func TermcapToStyle(termcap string) (twin.Style, error) {
 	// Add a character to be sure we have one to take the format from
-	cells := textstyles.StyledRunesFromString("", termcap+"x", nil).StyledRunes
+	cells := textstyles.StyledRunesFromString(twin.StyleDefault, termcap+"x", nil).StyledRunes
 	if len(cells) != 1 {
 		return twin.StyleDefault, fmt.Errorf("Expected styling only and no text")
 	}

@@ -51,6 +51,9 @@ func printProblemsHeader() {
 	fmt.Fprintln(os.Stderr, "GOARCH  :", runtime.GOARCH)
 	fmt.Fprintln(os.Stderr, "Compiler:", runtime.Compiler)
 	fmt.Fprintln(os.Stderr, "NumCPU  :", runtime.NumCPU())
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "Stdin  is a terminal:", term.IsTerminal(int(os.Stdin.Fd())))
+	fmt.Fprintln(os.Stderr, "Stdout is a terminal:", term.IsTerminal(int(os.Stdout.Fd())))
 }
 
 func parseLexerOption(lexerOption string) (chroma.Lexer, error) {
@@ -320,7 +323,7 @@ func pagerFromArgs(
 	stdinIsRedirected bool,
 	stdoutIsRedirected bool,
 ) (
-	*m.Pager, twin.Screen, chroma.Style, *chroma.Formatter, error,
+	*m.Pager, twin.Screen, chroma.Style, *chroma.Formatter, bool, error,
 ) {
 	// FIXME: If we get a CTRL-C, get terminal back into a useful state before terminating
 
@@ -390,7 +393,7 @@ func pagerFromArgs(
 	if err != nil {
 		if err == flag.ErrHelp {
 			printUsage(flagSet, *terminalColorsCount)
-			return nil, nil, chroma.Style{}, nil, nil
+			return nil, nil, chroma.Style{}, nil, false, nil
 		}
 
 		errorText := err.Error()
@@ -407,12 +410,14 @@ func pagerFromArgs(
 		os.Exit(1)
 	}
 
+	logsRequested := *debug || *trace
+
 	if *printVersion {
 		fmt.Println(getVersion())
-		return nil, nil, chroma.Style{}, nil, nil
+		return nil, nil, chroma.Style{}, nil, logsRequested, nil
 	}
 
-	log.SetLevel(log.WarnLevel)
+	log.SetLevel(log.InfoLevel)
 	if *trace {
 		log.SetLevel(log.TraceLevel)
 	} else if *debug {
@@ -437,7 +442,7 @@ func pagerFromArgs(
 		// will be cleared before we print the "No such file" error.
 		err := tryOpen(inputFilename)
 		if err != nil {
-			return nil, nil, chroma.Style{}, nil, err
+			return nil, nil, chroma.Style{}, nil, logsRequested, err
 		}
 	}
 
@@ -452,9 +457,9 @@ func pagerFromArgs(
 	if stdoutIsRedirected {
 		err := pumpToStdout(flagSet.Args()...)
 		if err != nil {
-			return nil, nil, chroma.Style{}, nil, err
+			return nil, nil, chroma.Style{}, nil, logsRequested, err
 		}
-		return nil, nil, chroma.Style{}, nil, nil
+		return nil, nil, chroma.Style{}, nil, logsRequested, nil
 	}
 
 	// INVARIANT: At this point, stdout is a terminal and we should proceed with
@@ -494,7 +499,7 @@ func pagerFromArgs(
 		}
 		reader, err = m.NewReaderFromFilename(flagSet.Args()[0], formatter, m.ReaderOptions{Lexer: *lexer, ShouldFormat: shouldFormat})
 		if err != nil {
-			return nil, nil, chroma.Style{}, nil, err
+			return nil, nil, chroma.Style{}, nil, logsRequested, err
 		}
 	}
 
@@ -507,11 +512,11 @@ func pagerFromArgs(
 	screen, err := newScreen(*mouseMode, *terminalColorsCount)
 	if err != nil {
 		// Ref: https://github.com/walles/moar/issues/149
-		log.Debug("Failed to set up screen for paging, pumping to stdout instead: ", err)
+		log.Info("Failed to set up screen for paging, pumping to stdout instead: ", err)
 
 		reader.PumpToStdout()
 
-		return nil, nil, chroma.Style{}, nil, nil
+		return nil, nil, chroma.Style{}, nil, logsRequested, nil
 	}
 
 	var style chroma.Style = *styles.Get(defaultDarkTheme)
@@ -570,17 +575,19 @@ func pagerFromArgs(
 		pager.TargetLineNumber = &reallyHigh
 	}
 
-	return pager, screen, style, &formatter, nil
+	return pager, screen, style, &formatter, logsRequested, nil
 }
 
 func main() {
 	var loglines strings.Builder
+	logsRequested := false
 	log.SetOutput(&loglines)
 	russiaNotSupported()
 
 	defer func() {
 		err := recover()
-		if len(loglines.String()) == 0 && err == nil {
+		haveLogsToShow := len(loglines.String()) > 0 && logsRequested
+		if err == nil && !haveLogsToShow {
 			// No problems
 			return
 		}
@@ -595,6 +602,8 @@ func main() {
 
 		if err != nil {
 			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr, "Panic recovery timestamp:", time.Now())
+			fmt.Fprintln(os.Stderr)
 			panic(err)
 		}
 
@@ -604,12 +613,13 @@ func main() {
 	stdinIsRedirected := !term.IsTerminal(int(os.Stdin.Fd()))
 	stdoutIsRedirected := !term.IsTerminal(int(os.Stdout.Fd()))
 
-	pager, screen, style, formatter, err := pagerFromArgs(
+	pager, screen, style, formatter, _logsRequested, err := pagerFromArgs(
 		os.Args,
 		twin.NewScreenWithMouseModeAndColorCount,
 		stdinIsRedirected,
 		stdoutIsRedirected,
 	)
+	logsRequested = _logsRequested
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(1)

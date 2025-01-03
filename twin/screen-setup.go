@@ -4,6 +4,7 @@
 package twin
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -69,7 +70,7 @@ func (r *interruptableReaderImpl) read(p []byte) (n int, err error) {
 		closeErr := r.shutdownPipeReader.Close()
 		if closeErr != nil {
 			// This should never happen, but if it does we should log it
-			log.Debug("Failed to close shutdown pipe reader: ", closeErr)
+			log.Info("Failed to close shutdown pipe reader: ", closeErr)
 		}
 
 		err = io.EOF
@@ -173,6 +174,12 @@ func (screen *UnixScreen) setupTtyInTtyOut() error {
 	if err != nil {
 		return err
 	}
+
+	updatedTerminalState, err := term.GetState(int(screen.ttyIn.Fd()))
+	if err != nil {
+		return err
+	}
+	log.Info("Raw terminal state: ", fmt.Sprintf("%+v", updatedTerminalState))
 
 	screen.ttyOut = os.Stdout
 	return nil

@@ -1,6 +1,6 @@
 %define name moar
-%define version 1.31.2
-%define release 2%{?dist}
+%define version 1.31.3
+%define release 1%{?dist}
 
 Summary:  Moar is a pager. It's designed to just do the right thing without any configuration.
 Name:     %{name}
@@ -45,6 +45,7 @@ install -m 644 %{name}.1.gz %{buildroot}%{_mandir}/man1
 %{_mandir}/man1/%{name}.1.gz
 
 %changelog
+* Tue Feb 25 2025 - Danie de Jager 1.31.3-1
 * Mon Fed 17 2025 - Danie de Jager 1.31.2-2
 * Mon Jan 13 2025 - Danie de Jager 1.31.2-1
 * Fri Jan 10 2025 - Danie de Jager 1.31.1-1

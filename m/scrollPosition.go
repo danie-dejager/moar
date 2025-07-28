@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/walles/moar/m/linemetadata"
+	"github.com/walles/moar/m/reader"
 )
 
 // Please create using newScrollPosition(name)
@@ -133,9 +134,9 @@ func (si *scrollPositionInternal) handleNegativeDeltaScreenLines(pager *Pager) {
 func (si *scrollPositionInternal) handlePositiveDeltaScreenLines(pager *Pager) {
 	maxPrefixLength := 0
 	allPossibleLines := pager.Reader().GetLines(*si.lineIndex, pager.visibleHeight())
-	if len(allPossibleLines.lines) > 0 {
-		lastPossibleLine := allPossibleLines.lines[len(allPossibleLines.lines)-1]
-		maxPrefixLength = pager.getLineNumberPrefixLength(lastPossibleLine.number)
+	if len(allPossibleLines.Lines) > 0 {
+		lastPossibleLine := allPossibleLines.Lines[len(allPossibleLines.Lines)-1]
+		maxPrefixLength = pager.getLineNumberPrefixLength(lastPossibleLine.Number)
 	}
 
 	for {
@@ -169,6 +170,11 @@ func (si *scrollPositionInternal) handlePositiveDeltaScreenLines(pager *Pager) {
 // This method assumes si contains a canonical position
 func (si *scrollPositionInternal) emptyBottomLinesCount(pager *Pager) int {
 	unclaimedViewportLines := pager.visibleHeight()
+	if unclaimedViewportLines == 0 {
+		// No lines at all => no lines are empty. Happens (at least) during
+		// testing.
+		return 0
+	}
 	if pager.Reader().GetLineCount() == 0 {
 		// No lines available, so all viewport lines are unclaimed
 		return unclaimedViewportLines
@@ -179,17 +185,20 @@ func (si *scrollPositionInternal) emptyBottomLinesCount(pager *Pager) int {
 
 	lineIndex := *si.lineIndex
 
-	var lastLine NumberedLine
-	lastLineIndex := linemetadata.IndexFromLength(pager.Reader().GetLineCount())
-	if lastLineIndex != nil {
-		maybeLastLine := pager.Reader().GetLine(*lastLineIndex)
-		// This check is needed for the unlikely case that we just reformatted
-		// the input stream and it just lost some lines.
-		if maybeLastLine != nil {
-			lastLine = *maybeLastLine
-		}
+	var lastLine reader.NumberedLine
+	lastLineIndex := linemetadata.IndexFromZeroBased(lineIndex.Index() + pager.visibleHeight() - 1)
+	lastPossibleLineIndex := linemetadata.IndexFromLength(pager.Reader().GetLineCount())
+	if lastPossibleLineIndex != nil && lastLineIndex.IsAfter(*lastPossibleLineIndex) {
+		lastLineIndex = *lastPossibleLineIndex
 	}
-	lastLineNumberWidth := pager.getLineNumberPrefixLength(lastLine.number)
+
+	maybeLastLine := pager.Reader().GetLine(lastLineIndex)
+	// This check is needed for the unlikely case that we just reformatted
+	// the input stream and it just lost some lines.
+	if maybeLastLine != nil {
+		lastLine = *maybeLastLine
+	}
+	lastLineNumberWidth := pager.getLineNumberPrefixLength(lastLine.Number)
 
 	for {
 		line := pager.Reader().GetLine(lineIndex)
@@ -344,7 +353,7 @@ func (p *Pager) scrollToEnd() {
 
 	// Scroll down enough. We know for sure the last line won't wrap into more
 	// lines than the number of characters it contains.
-	p.scrollPosition.internalDontTouch.deltaScreenLines = len(lastInputLine.line.raw)
+	p.scrollPosition.internalDontTouch.deltaScreenLines = len(lastInputLine.Line.Plain(&lastInputLine.Index))
 
 	if p.TargetLine == nil {
 		// Start following the end of the file
@@ -376,7 +385,7 @@ func (p *Pager) isScrolledToEnd() bool {
 	// Last line is on screen, now we need to figure out whether we can see all
 	// of it
 	lastInputLine := p.Reader().GetLine(lastInputLineIndex)
-	lastInputLineRendered := p.renderLine(lastInputLine, p.getLineNumberPrefixLength(lastInputLine.number))
+	lastInputLineRendered := p.renderLine(lastInputLine, p.getLineNumberPrefixLength(lastInputLine.Number))
 	lastRenderedSubLine := lastInputLineRendered[len(lastInputLineRendered)-1]
 
 	// If the last visible subline is the same as the last possible subline then
@@ -427,7 +436,7 @@ func (si *scrollPositionInternal) getMaxNumberPrefixLength(pager *Pager) int {
 
 	// nil can happen when the input stream is empty
 	if lastVisibleLine != nil {
-		number = lastVisibleLine.number
+		number = lastVisibleLine.Number
 	}
 
 	// Count the length of the last line number

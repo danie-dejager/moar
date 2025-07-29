@@ -13,11 +13,18 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/walles/moar/m/linemetadata"
+	log "github.com/sirupsen/logrus"
 	"gotest.tools/v3/assert"
+
+	"github.com/walles/moar/m/linemetadata"
 )
 
 const samplesDir = "../../sample-files"
+
+func init() {
+	// Info logs clutter at least benchmark output
+	log.SetLevel(log.WarnLevel)
+}
 
 func testGetLineCount(t *testing.T, reader *ReaderImpl) {
 	if strings.Contains(*reader.Name, "compressed") {
@@ -130,20 +137,22 @@ func getTestFiles(t *testing.T) []string {
 
 func TestGetLines(t *testing.T) {
 	for _, file := range getTestFiles(t) {
-		reader, err := NewFromFilename(file, formatters.TTY16m, ReaderOptions{Style: styles.Get("native")})
-		if err != nil {
-			t.Errorf("Error opening file <%s>: %s", file, err.Error())
-			continue
-		}
-		if err := reader.Wait(); err != nil {
-			t.Errorf("Error reading file <%s>: %s", file, err.Error())
-			continue
-		}
-
 		t.Run(file, func(t *testing.T) {
-			testGetLines(t, reader)
-			testGetLineCount(t, reader)
-			testHighlightingLineCount(t, file)
+			reader, err := NewFromFilename(file, formatters.TTY16m, ReaderOptions{Style: styles.Get("native")})
+			if err != nil {
+				t.Errorf("Error opening file <%s>: %s", file, err.Error())
+				return
+			}
+			if err := reader.Wait(); err != nil {
+				t.Errorf("Error reading file <%s>: %s", file, err.Error())
+				return
+			}
+
+			t.Run(file, func(t *testing.T) {
+				testGetLines(t, reader)
+				testGetLineCount(t, reader)
+				testHighlightingLineCount(t, file)
+			})
 		})
 	}
 }
@@ -382,7 +391,7 @@ func TestReadUpdatingFile(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Give the reader some time to react
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		allLines := testMe.GetLines(linemetadata.Index{}, 10)
 		if len(allLines.Lines) == 2 {
 			break
@@ -561,7 +570,7 @@ func TestReadUpdatingFile_HalfUtf8(t *testing.T) {
 //
 // Run with: go test -run='^$' -bench=. . ./...
 func BenchmarkReaderDone(b *testing.B) {
-	filename := "pager.go" // This is our longest .go file
+	filename := "reader.go" // This is our longest .go file
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		// This is our longest .go file
@@ -579,7 +588,7 @@ func BenchmarkReadLargeFile(b *testing.B) {
 	const largeSizeBytes = 35_000_000
 
 	// First, create it from something...
-	inputFilename := "pager.go"
+	inputFilename := "reader.go"
 	contents, err := os.ReadFile(inputFilename)
 	assert.NilError(b, err)
 
@@ -598,9 +607,18 @@ func BenchmarkReadLargeFile(b *testing.B) {
 	err = largeFile.Close()
 	assert.NilError(b, err)
 
+	// Make sure we don't pause during the benchmark
+	targetLineCount := largeSizeBytes * 2
+
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		readMe, err := NewFromFilename(largeFileName, formatters.TTY16m, ReaderOptions{Style: styles.Get("native")})
+		readMe, err := NewFromFilename(
+			largeFileName,
+			formatters.TTY16m,
+			ReaderOptions{
+				Style:           styles.Get("native"),
+				PauseAfterLines: &targetLineCount,
+			})
 		assert.NilError(b, err)
 
 		assert.NilError(b, readMe.Wait())
@@ -611,7 +629,7 @@ func BenchmarkReadLargeFile(b *testing.B) {
 // Count lines in pager.go
 func BenchmarkCountLines(b *testing.B) {
 	// First, get some sample lines...
-	inputFilename := "pager.go"
+	inputFilename := "reader.go"
 	contents, err := os.ReadFile(inputFilename)
 	assert.NilError(b, err)
 
@@ -620,9 +638,12 @@ func BenchmarkCountLines(b *testing.B) {
 	countFile, err := os.Create(countFileName)
 	assert.NilError(b, err)
 
-	// 1000x makes this take about 12ms on my machine right now. Before 1000x
-	// the numbers fluctuated much more.
-	for n := 0; n < b.N*1000; n++ {
+	// Make a large enough test case that a majority of the time is spent
+	// counting lines, rather than on any counting startup cost.
+	//
+	// We used to have 1000 here, but that made the benchmark result fluctuate
+	// too much. 10_000 seems to provide stable enough results.
+	for range 10_000 {
 		_, err := countFile.Write(contents)
 		assert.NilError(b, err)
 	}
@@ -630,6 +651,8 @@ func BenchmarkCountLines(b *testing.B) {
 	assert.NilError(b, err)
 
 	b.ResetTimer()
-	_, err = countLines(countFileName)
-	assert.NilError(b, err)
+	for range b.N {
+		_, err = countLines(countFileName)
+		assert.NilError(b, err)
+	}
 }
